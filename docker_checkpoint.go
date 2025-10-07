@@ -97,7 +97,7 @@ func restoreContainerDocker(containerID, checkpointDir string) error {
 
 	// Try using Docker's experimental checkpoint restore
 	checkpointName := "manual-checkpoint"
-	startOptions := container.StartOptions{
+	startOptions := types.ContainerStartOptions{
 		CheckpointID:  checkpointName,
 		CheckpointDir: checkpointDir,
 	}
