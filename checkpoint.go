@@ -80,19 +80,28 @@ func checkpointContainer(containerID, checkpointDir string) error {
 	}
 	defer imageDir.Close()
 
-	// Set CRIU options for checkpointing
+	// Set CRIU options for checkpointing - optimized for Docker containers
 	opts := &rpc.CriuOpts{
-		Pid:            proto.Int32(int32(pid)),
-		ImagesDirFd:    proto.Int32(int32(imageDir.Fd())),
-		LogLevel:       proto.Int32(4),
-		LogFile:        proto.String("criu-dump.log"),
-		LeaveRunning:   proto.Bool(true),  // Keep container running after checkpoint
-		TcpEstablished: proto.Bool(true),  // Checkpoint TCP connections
-		ExtUnixSk:      proto.Bool(true),  // Handle external unix sockets
-		ShellJob:       proto.Bool(false), // Container processes aren't shell jobs
-		FileLocks:      proto.Bool(true),  // Handle file locks
-		GhostLimit:     proto.Uint32(1000000), // Size limit for invisible files
-		ManageCgroups:  proto.Bool(true),  // Let CRIU manage cgroups
+		Pid:               proto.Int32(int32(pid)),
+		ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
+		LogLevel:          proto.Int32(4),
+		LogFile:           proto.String("criu-dump.log"),
+		LeaveRunning:      proto.Bool(true),  // Keep container running after checkpoint
+		TcpEstablished:    proto.Bool(true),  // Checkpoint TCP connections
+		ExtUnixSk:         proto.Bool(true),  // Handle external unix sockets
+		ShellJob:          proto.Bool(false), // Container processes aren't shell jobs
+		FileLocks:         proto.Bool(true),  // Handle file locks
+		GhostLimit:        proto.Uint32(1000000), // Size limit for invisible files
+		ManageCgroups:     proto.Bool(false), // Don't let CRIU manage cgroups (Docker issue)
+		AutoDedup:         proto.Bool(true),  // Enable automatic deduplication
+		TrackMem:          proto.Bool(false), // Disable memory tracking for simplicity
+		LinkRemap:         proto.Bool(true),  // Allow link remapping
+		WorkDirFd:         proto.Int32(int32(imageDir.Fd())), // Set work directory
+		OrphanPtsMaster:   proto.Bool(true),  // Handle orphaned PTY masters
+		Root:              proto.String("/"),  // Set root directory
+		ExtMasters:        proto.Bool(true),  // Handle external masters
+		SkipMnt:           []string{"/etc/resolv.conf", "/etc/hostname", "/etc/hosts"}, // Skip Docker-managed files
+		EnableFs:          []string{"overlay"}, // Enable overlay filesystem support
 	}
 
 	// Perform the checkpoint
