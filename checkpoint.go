@@ -10,6 +10,7 @@ import (
 	"github.com/checkpoint-restore/go-criu/v7"
 	"github.com/checkpoint-restore/go-criu/v7/rpc"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
 )
@@ -61,7 +62,7 @@ func checkpointContainer(containerID, checkpointDir string) error {
 
 	// Create CRIU client
 	criuClient := criu.MakeCriu()
-	criuVersion, err := criuClient.GetCriuVersion()
+	_, err = criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version (is CRIU installed?): %w", err)
 	}

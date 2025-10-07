@@ -111,7 +111,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 
 	// Create CRIU client
 	criuClient := criu.MakeCriu()
-	criuVersion, err := criuClient.GetCriuVersion()
+	_, err = criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
