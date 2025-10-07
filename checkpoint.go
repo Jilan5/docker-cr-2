@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/checkpoint-restore/go-criu/v5"
-	"github.com/checkpoint-restore/go-criu/v5/rpc"
+	"github.com/checkpoint-restore/go-criu/v4"
+	"github.com/checkpoint-restore/go-criu/v4/rpc"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
