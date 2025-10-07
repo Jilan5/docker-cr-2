@@ -80,28 +80,30 @@ func checkpointContainer(containerID, checkpointDir string) error {
 	}
 	defer imageDir.Close()
 
-	// Set CRIU options for checkpointing - optimized for Docker containers
+	// Set CRIU options for checkpointing - Cedana-style approach for Docker containers
 	opts := &rpc.CriuOpts{
 		Pid:               proto.Int32(int32(pid)),
 		ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
 		LogLevel:          proto.Int32(4),
 		LogFile:           proto.String("criu-dump.log"),
-		LeaveRunning:      proto.Bool(true),  // Keep container running after checkpoint
+		LeaveRunning:      proto.Bool(false), // Stop container after checkpoint for clean restore
 		TcpEstablished:    proto.Bool(true),  // Checkpoint TCP connections
 		ExtUnixSk:         proto.Bool(true),  // Handle external unix sockets
 		ShellJob:          proto.Bool(false), // Container processes aren't shell jobs
 		FileLocks:         proto.Bool(true),  // Handle file locks
-		GhostLimit:        proto.Uint32(1000000), // Size limit for invisible files
-		ManageCgroups:     proto.Bool(false), // Don't let CRIU manage cgroups (Docker issue)
-		AutoDedup:         proto.Bool(true),  // Enable automatic deduplication
+		GhostLimit:        proto.Uint32(1048576), // 1MB limit for invisible files
+		ManageCgroups:     proto.Bool(false), // Let Docker handle cgroups
 		TrackMem:          proto.Bool(false), // Disable memory tracking for simplicity
 		LinkRemap:         proto.Bool(true),  // Allow link remapping
 		WorkDirFd:         proto.Int32(int32(imageDir.Fd())), // Set work directory
 		OrphanPtsMaster:   proto.Bool(true),  // Handle orphaned PTY masters
-		Root:              proto.String("/"),  // Set root directory
 		ExtMasters:        proto.Bool(true),  // Handle external masters
-		SkipMnt:           []string{"/etc/resolv.conf", "/etc/hostname", "/etc/hosts"}, // Skip Docker-managed files
-		EnableFs:          []string{"overlay"}, // Enable overlay filesystem support
+		// Skip problematic Docker mounts that cause "doesn't have a proper root mount" error
+		SkipMnt:           []string{"/etc/resolv.conf", "/etc/hostname", "/etc/hosts", "/dev/mqueue", "/proc/sys", "/proc/sysrq-trigger"},
+		// Enable overlay and other filesystems Docker uses
+		EnableFs:          []string{"overlay", "proc", "sysfs", "devtmpfs", "tmpfs"},
+		ManageCgroupsMode: proto.Uint32(2), // CG_MODE_IGNORE - completely ignore cgroups
+		AutoDedup:         proto.Bool(false), // Disable for stability
 	}
 
 	// Perform the checkpoint

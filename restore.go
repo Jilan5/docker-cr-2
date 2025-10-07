@@ -16,15 +16,6 @@ import (
 )
 
 func restoreContainer(containerID, checkpointDir string) error {
-	ctx := context.Background()
-
-	// Create Docker client
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return fmt.Errorf("failed to create Docker client: %w", err)
-	}
-	defer dockerClient.Close()
-
 	// Read metadata to get original container info
 	metadataFile := filepath.Join(checkpointDir, "container.info")
 	metadataBytes, err := os.ReadFile(metadataFile)
@@ -40,74 +31,19 @@ func restoreContainer(containerID, checkpointDir string) error {
 	fmt.Printf("Original container image: %s\n", originalImage)
 	fmt.Printf("Original PID: %d\n", originalPID)
 
-	// Check if container exists
-	existingContainer, err := dockerClient.ContainerInspect(ctx, containerID)
-	containerExists := err == nil
-
-	if containerExists {
-		// If container exists and is running, stop it first
-		if existingContainer.State.Running {
-			fmt.Printf("Stopping existing container %s...\n", containerID)
-			timeout := 10
-			if err := dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
-				return fmt.Errorf("failed to stop container: %w", err)
-			}
-			// Wait a moment for container to stop
-			time.Sleep(2 * time.Second)
-		}
-
-		// Remove the existing container
-		fmt.Printf("Removing existing container %s...\n", containerID)
-		removeOptions := types.ContainerRemoveOptions{
-			Force: true,
-		}
-		if err := dockerClient.ContainerRemove(ctx, containerID, removeOptions); err != nil {
-			fmt.Printf("Warning: failed to remove existing container: %v\n", err)
-		}
-	}
-
-	// Create a new container from the same image
-	fmt.Printf("Creating new container from image %s...\n", originalImage)
-
-	config := &container.Config{
-		Image: originalImage,
-		Tty:   true,
-		OpenStdin: true,
-	}
-
-	hostConfig := &container.HostConfig{
-		AutoRemove: false,
-		Privileged: true, // Need privileged for CRIU restore
-	}
-
-	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, nil, containerID)
+	// Verify checkpoint files exist
+	entries, err := os.ReadDir(checkpointDir)
 	if err != nil {
-		return fmt.Errorf("failed to create container: %w", err)
+		return fmt.Errorf("failed to read checkpoint directory: %w", err)
 	}
 
-	newContainerID := resp.ID
-	fmt.Printf("Created new container: %s\n", newContainerID)
-
-	// Start the container briefly to get its PID
-	if err := dockerClient.ContainerStart(ctx, newContainerID, types.ContainerStartOptions{}); err != nil {
-		return fmt.Errorf("failed to start container: %w", err)
+	fmt.Printf("Found %d checkpoint files\n", len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			info, _ := entry.Info()
+			fmt.Printf("  - %s (%d bytes)\n", entry.Name(), info.Size())
+		}
 	}
-
-	// Get the new container's PID
-	newContainerInfo, err := dockerClient.ContainerInspect(ctx, newContainerID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect new container: %w", err)
-	}
-
-	newPID := newContainerInfo.State.Pid
-	if newPID == 0 {
-		return fmt.Errorf("could not get PID for new container")
-	}
-
-	fmt.Printf("New container PID: %d\n", newPID)
-
-	// Now perform CRIU restore
-	fmt.Println("Restoring container state with CRIU...")
 
 	// Create CRIU client
 	criuClient := criu.MakeCriu()
@@ -130,43 +66,67 @@ func restoreContainer(containerID, checkpointDir string) error {
 	}
 	defer imageDir.Close()
 
-	// Set CRIU options for restore
+	// Set CRIU options for restore - Cedana-style approach
 	opts := &rpc.CriuOpts{
-		ImagesDirFd:    proto.Int32(int32(imageDir.Fd())),
-		LogLevel:       proto.Int32(4),
-		LogFile:        proto.String("criu-restore.log"),
-		TcpEstablished: proto.Bool(true),
-		ExtUnixSk:      proto.Bool(true),
-		ShellJob:       proto.Bool(false),
-		FileLocks:      proto.Bool(true),
-		ManageCgroups:  proto.Bool(true),
-		RstSibling:     proto.Bool(true), // Restore as sibling (not child)
+		ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
+		LogLevel:          proto.Int32(4),
+		LogFile:           proto.String("criu-restore.log"),
+		TcpEstablished:    proto.Bool(true),  // Restore TCP connections
+		ExtUnixSk:         proto.Bool(true),  // Handle external unix sockets
+		ShellJob:          proto.Bool(false), // Container processes aren't shell jobs
+		FileLocks:         proto.Bool(true),  // Handle file locks
+		ManageCgroups:     proto.Bool(false), // Let Docker handle cgroups
+		TrackMem:          proto.Bool(false), // Disable memory tracking for simplicity
+		LinkRemap:         proto.Bool(true),  // Allow link remapping
+		WorkDirFd:         proto.Int32(int32(imageDir.Fd())), // Set work directory
+		OrphanPtsMaster:   proto.Bool(true),  // Handle orphaned PTY masters
+		ExtMasters:        proto.Bool(true),  // Handle external masters
+		// Skip the same problematic mounts
+		SkipMnt:           []string{"/etc/resolv.conf", "/etc/hostname", "/etc/hosts", "/dev/mqueue", "/proc/sys", "/proc/sysrq-trigger"},
+		// Enable the same filesystems as checkpoint
+		EnableFs:          []string{"overlay", "proc", "sysfs", "devtmpfs", "tmpfs"},
+		ManageCgroupsMode: proto.Uint32(2), // CG_MODE_IGNORE - completely ignore cgroups
+		AutoDedup:         proto.Bool(false), // Disable for stability
+		RstSibling:        proto.Bool(false), // Restore as child process
 	}
 
 	// Perform the restore
+	fmt.Println("Restoring process state with CRIU...")
 	err = criuClient.Restore(opts, nil)
 	if err != nil {
 		// Print CRIU log for debugging
 		logPath := filepath.Join(checkpointDir, "criu-restore.log")
 		if logData, readErr := os.ReadFile(logPath); readErr == nil {
-			fmt.Printf("CRIU log output:\n%s\n", string(logData))
+			fmt.Printf("CRIU restore log output:\n%s\n", string(logData))
 		}
-		return fmt.Errorf("restore failed: %w", err)
+		return fmt.Errorf("CRIU restore failed: %w", err)
 	}
 
-	// Verify container is running
-	restoredContainer, err := dockerClient.ContainerInspect(ctx, newContainerID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect restored container: %w", err)
-	}
+	fmt.Println("CRIU restore completed successfully!")
 
-	if restoredContainer.State.Running {
-		fmt.Println("Container restored and running successfully!")
-		fmt.Printf("Container ID: %s\n", newContainerID)
-		fmt.Printf("Container state: %s\n", restoredContainer.State.Status)
-	} else {
-		fmt.Println("Warning: Container restored but not running")
-		fmt.Printf("Container state: %s\n", restoredContainer.State.Status)
+	// Wait a moment for processes to stabilize
+	time.Sleep(2 * time.Second)
+
+	// Try to find the restored container by checking Docker
+	ctx := context.Background()
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err == nil {
+		defer dockerClient.Close()
+
+		// List all containers to see if our process is now containerized
+		containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{All: true})
+		if err == nil {
+			for _, container := range containers {
+				if container.Names[0] == "/"+containerID || container.ID == containerID {
+					fmt.Printf("Found restored container: %s (State: %s)\n", container.ID[:12], container.State)
+					if container.State == "running" {
+						containerInfo, _ := dockerClient.ContainerInspect(ctx, container.ID)
+						fmt.Printf("Container is running with PID: %d\n", containerInfo.State.Pid)
+					}
+					break
+				}
+			}
+		}
 	}
 
 	return nil

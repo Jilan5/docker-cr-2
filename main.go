@@ -24,7 +24,7 @@ func main() {
 		checkpointDir := os.Args[3]
 
 		fmt.Printf("Creating checkpoint for container %s in %s...\n", containerID, checkpointDir)
-		if err := checkpointContainerDocker(containerID, checkpointDir); err != nil {
+		if err := checkpointContainer(containerID, checkpointDir); err != nil {
 			fmt.Printf("Error creating checkpoint: %v\n", err)
 			os.Exit(1)
 		}
@@ -40,7 +40,7 @@ func main() {
 		checkpointDir := os.Args[3]
 
 		fmt.Printf("Restoring container %s from %s...\n", containerID, checkpointDir)
-		if err := restoreContainerDocker(containerID, checkpointDir); err != nil {
+		if err := restoreContainer(containerID, checkpointDir); err != nil {
 			fmt.Printf("Error restoring container: %v\n", err)
 			os.Exit(1)
 		}
