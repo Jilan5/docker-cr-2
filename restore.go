@@ -129,19 +129,19 @@ func restoreContainer(containerID, checkpointDir string) error {
 	time.Sleep(2 * time.Second)
 
 	// Try to find the restored container by checking Docker
-	ctx := context.Background()
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	// Create a new Docker client for post-restore verification
+	dockerClient2, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err == nil {
-		defer dockerClient.Close()
+		defer dockerClient2.Close()
 
 		// List all containers to see if our process is now containerized
-		containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{All: true})
+		containers, err := dockerClient2.ContainerList(ctx, types.ContainerListOptions{All: true})
 		if err == nil {
 			for _, container := range containers {
 				if container.Names[0] == "/"+containerID || container.ID == containerID {
 					fmt.Printf("Found restored container: %s (State: %s)\n", container.ID[:12], container.State)
 					if container.State == "running" {
-						containerInfo, _ := dockerClient.ContainerInspect(ctx, container.ID)
+						containerInfo, _ := dockerClient2.ContainerInspect(ctx, container.ID)
 						fmt.Printf("Container is running with PID: %d\n", containerInfo.State.Pid)
 					}
 					break
@@ -191,45 +191,3 @@ func restoreContainerDockerNative(containerID, checkpointName string) error {
 	return nil
 }
 
-func splitLines(s string) []string {
-	var lines []string
-	current := ""
-	for _, c := range s {
-		if c == '\n' {
-			if current != "" {
-				lines = append(lines, current)
-			}
-			current = ""
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return lines
-}
-
-// Helper function to stop a container (used before restore)
-func stopContainer(dockerClient *client.Client, containerID string) error {
-	ctx := context.Background()
-
-	// Check if container exists and is running
-	containerInfo, err := dockerClient.ContainerInspect(ctx, containerID)
-	if err != nil {
-		// Container doesn't exist, that's OK for restore
-		return nil
-	}
-
-	if containerInfo.State.Running {
-		fmt.Printf("Stopping existing container %s before restore...\n", containerID)
-		timeout := 10
-		stopOptions := container.StopOptions{Timeout: &timeout}
-		if err := dockerClient.ContainerStop(ctx, containerID, stopOptions); err != nil {
-			return fmt.Errorf("failed to stop container: %w", err)
-		}
-		fmt.Printf("Container %s stopped successfully\n", containerID)
-	}
-
-	return nil
-}
