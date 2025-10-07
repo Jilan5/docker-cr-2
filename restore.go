@@ -10,7 +10,6 @@ import (
 	"github.com/checkpoint-restore/go-criu/v7"
 	"github.com/checkpoint-restore/go-criu/v7/rpc"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
 )
@@ -85,7 +84,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 		SkipMnt:           []string{"/etc/resolv.conf", "/etc/hostname", "/etc/hosts", "/dev/mqueue", "/proc/sys", "/proc/sysrq-trigger"},
 		// Enable the same filesystems as checkpoint
 		EnableFs:          []string{"overlay", "proc", "sysfs", "devtmpfs", "tmpfs"},
-		ManageCgroupsMode: proto.Uint32(2), // CG_MODE_IGNORE - completely ignore cgroups
+		ManageCgroupsMode: rpc.CriuCgMode_IGNORE.Enum(), // CG_MODE_IGNORE - completely ignore cgroups
 		AutoDedup:         proto.Bool(false), // Disable for stability
 		RstSibling:        proto.Bool(false), // Restore as child process
 	}
