@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 // Alternative approach using Docker's experimental checkpoint API
@@ -140,12 +141,14 @@ func restoreContainerDocker(containerID, checkpointDir string) error {
 	fmt.Printf("Recreating container from image %s...\n", originalImage)
 
 	// Create a new container from the original image
+	exposedPorts := nat.PortSet{
+		"80/tcp": struct{}{},
+	}
+
 	config := &container.Config{
-		Image: originalImage,
-		Cmd:   []string{"nginx", "-g", "daemon off;"}, // Default nginx command
-		ExposedPorts: map[types.Port]struct{}{
-			"80/tcp": {},
-		},
+		Image:        originalImage,
+		Cmd:          []string{"nginx", "-g", "daemon off;"}, // Default nginx command
+		ExposedPorts: exposedPorts,
 	}
 
 	hostConfig := &container.HostConfig{
