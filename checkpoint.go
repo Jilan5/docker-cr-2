@@ -42,6 +42,11 @@ func checkpointContainer(containerID, checkpointDir string) error {
 
 	fmt.Printf("Container PID: %d\n", pid)
 
+	// Validate that the process exists and is stable
+	if err := validateProcessState(pid); err != nil {
+		return fmt.Errorf("process validation failed: %w", err)
+	}
+
 	// Create checkpoint directory if it doesn't exist
 	if err := os.MkdirAll(checkpointDir, 0755); err != nil {
 		return fmt.Errorf("failed to create checkpoint directory: %w", err)
@@ -86,7 +91,7 @@ func checkpointContainer(containerID, checkpointDir string) error {
 		ImagesDirFd:       proto.Int32(int32(imageDir.Fd())),
 		LogLevel:          proto.Int32(4),
 		LogFile:           proto.String("criu-dump.log"),
-		LeaveRunning:      proto.Bool(false), // Stop container after checkpoint for clean restore
+		LeaveRunning:      proto.Bool(true),  // Keep container running during checkpoint
 		TcpEstablished:    proto.Bool(true),  // Checkpoint TCP connections
 		ExtUnixSk:         proto.Bool(true),  // Handle external unix sockets
 		ShellJob:          proto.Bool(false), // Container processes aren't shell jobs
@@ -203,4 +208,56 @@ func splitLines(s string) []string {
 		lines = append(lines, current)
 	}
 	return lines
+}
+
+// validateProcessState checks if the process exists and is in a good state for checkpointing
+func validateProcessState(pid int) error {
+	// Check if process exists by reading /proc/PID/stat
+	statFile := fmt.Sprintf("/proc/%d/stat", pid)
+	statData, err := os.ReadFile(statFile)
+	if err != nil {
+		return fmt.Errorf("process %d does not exist or is not accessible: %w", pid, err)
+	}
+
+	// Parse basic process state - just check if we can read it
+	statStr := string(statData)
+	if len(statStr) < 10 {
+		return fmt.Errorf("process %d has invalid stat data", pid)
+	}
+
+	// Check if process is in a reasonable state (not zombie)
+	// Basic state is the 3rd field in /proc/PID/stat after PID and comm
+	parts := make([]string, 0)
+	inParen := false
+	current := ""
+
+	for _, c := range statStr {
+		if c == '(' {
+			inParen = true
+		} else if c == ')' {
+			inParen = false
+		} else if c == ' ' && !inParen {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+			continue
+		}
+		current += string(c)
+	}
+	if current != "" {
+		parts = append(parts, current)
+	}
+
+	if len(parts) < 3 {
+		return fmt.Errorf("process %d has malformed stat data", pid)
+	}
+
+	state := parts[2]
+	if state == "Z" {
+		return fmt.Errorf("process %d is a zombie", pid)
+	}
+
+	fmt.Printf("Process %d validation passed (state: %s)\n", pid, state)
+	return nil
 }

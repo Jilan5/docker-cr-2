@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/checkpoint-restore/go-criu/v7"
 	"github.com/checkpoint-restore/go-criu/v7/rpc"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
 )
@@ -24,11 +26,31 @@ func restoreContainer(containerID, checkpointDir string) error {
 
 	var originalImage string
 	var originalPID int
-	fmt.Sscanf(string(metadataBytes), "CONTAINER_ID=%*s\nCONTAINER_NAME=%*s\nIMAGE=%s\nPID=%d\n",
-		&originalImage, &originalPID)
+
+	// Parse metadata line by line for more robust parsing
+	lines := splitLines(string(metadataBytes))
+	for _, line := range lines {
+		if len(line) > 6 && line[:6] == "IMAGE=" {
+			originalImage = line[6:]
+		} else if len(line) > 4 && line[:4] == "PID=" {
+			if pid, err := strconv.Atoi(line[4:]); err == nil {
+				originalPID = pid
+			}
+		}
+	}
 
 	fmt.Printf("Original container image: %s\n", originalImage)
 	fmt.Printf("Original PID: %d\n", originalPID)
+
+	// Stop any existing container instance before restore
+	ctx := context.Background()
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err == nil {
+		defer dockerClient.Close()
+		if err := stopContainer(dockerClient, containerID); err != nil {
+			fmt.Printf("Warning: failed to stop existing container: %v\n", err)
+		}
+	}
 
 	// Verify checkpoint files exist
 	entries, err := os.ReadDir(checkpointDir)
@@ -164,6 +186,49 @@ func restoreContainerDockerNative(containerID, checkpointName string) error {
 		fmt.Printf("Container state: %s\n", containerInfo.State.Status)
 	} else {
 		return fmt.Errorf("container restored but not running, state: %s", containerInfo.State.Status)
+	}
+
+	return nil
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	current := ""
+	for _, c := range s {
+		if c == '\n' {
+			if current != "" {
+				lines = append(lines, current)
+			}
+			current = ""
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+// Helper function to stop a container (used before restore)
+func stopContainer(dockerClient *client.Client, containerID string) error {
+	ctx := context.Background()
+
+	// Check if container exists and is running
+	containerInfo, err := dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		// Container doesn't exist, that's OK for restore
+		return nil
+	}
+
+	if containerInfo.State.Running {
+		fmt.Printf("Stopping existing container %s before restore...\n", containerID)
+		timeout := 10
+		stopOptions := container.StopOptions{Timeout: &timeout}
+		if err := dockerClient.ContainerStop(ctx, containerID, stopOptions); err != nil {
+			return fmt.Errorf("failed to stop container: %w", err)
+		}
+		fmt.Printf("Container %s stopped successfully\n", containerID)
 	}
 
 	return nil
