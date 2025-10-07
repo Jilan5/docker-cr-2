@@ -49,10 +49,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 		if existingContainer.State.Running {
 			fmt.Printf("Stopping existing container %s...\n", containerID)
 			timeout := 10
-			stopOptions := types.ContainerStopOptions{
-				Timeout: &timeout,
-			}
-			if err := dockerClient.ContainerStop(ctx, containerID, stopOptions); err != nil {
+			if err := dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
 			// Wait a moment for container to stop
@@ -118,10 +115,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
-	fmt.Printf("Using CRIU version: %d.%d.%d\n",
-		criuVersion.GetMajorNumber(),
-		criuVersion.GetMinorNumber(),
-		criuVersion.GetGitid())
+	fmt.Printf("CRIU version check passed\n")
 
 	// Prepare CRIU
 	if err := criuClient.Prepare(); err != nil {
@@ -150,7 +144,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 	}
 
 	// Perform the restore
-	err = criuClient.Restore(*opts, nil)
+	err = criuClient.Restore(opts, nil)
 	if err != nil {
 		// Print CRIU log for debugging
 		logPath := filepath.Join(checkpointDir, "criu-restore.log")

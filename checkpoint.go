@@ -65,10 +65,7 @@ func checkpointContainer(containerID, checkpointDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version (is CRIU installed?): %w", err)
 	}
-	fmt.Printf("Using CRIU version: %d.%d.%d\n",
-		criuVersion.GetMajorNumber(),
-		criuVersion.GetMinorNumber(),
-		criuVersion.GetGitid())
+	fmt.Printf("CRIU version check passed\n")
 
 	// Prepare CRIU
 	if err := criuClient.Prepare(); err != nil {
@@ -100,7 +97,7 @@ func checkpointContainer(containerID, checkpointDir string) error {
 
 	// Perform the checkpoint
 	fmt.Println("Creating checkpoint...")
-	err = criuClient.Dump(*opts, nil)
+	err = criuClient.Dump(opts, nil)
 	if err != nil {
 		// Check if log file exists and print it for debugging
 		logPath := filepath.Join(checkpointDir, "criu-dump.log")
@@ -140,10 +137,7 @@ func stopContainer(dockerClient *client.Client, containerID string) error {
 	if containerInfo.State.Running {
 		fmt.Printf("Stopping container %s...\n", containerID)
 		timeout := 10
-		stopOptions := types.ContainerStopOptions{
-			Timeout: &timeout,
-		}
-		if err := dockerClient.ContainerStop(ctx, containerID, stopOptions); err != nil {
+		if err := dockerClient.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
 			return fmt.Errorf("failed to stop container: %w", err)
 		}
 	}
