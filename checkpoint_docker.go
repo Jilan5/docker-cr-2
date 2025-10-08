@@ -97,7 +97,6 @@ func checkpointDockerProcess(pid int, checkpointDir string, graphDriver string) 
 		},
 		// Handle Docker's complex mount structure
 		AutoExtMnt:     proto.Bool(true),
-		ExtMountMap:    proto.String("/proc/mounts"),
 		ForceIrmap:     proto.Bool(true),
 	}
 

@@ -1,20 +1,18 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/checkpoint-restore/go-criu/v7"
 	"github.com/checkpoint-restore/go-criu/v7/rpc"
-	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
 )
 
 func checkpointContainer(containerID, checkpointDir string) error {
-	// Use the Docker-specific checkpointing function
-	return checkpointDockerContainer(containerID, checkpointDir)
+	// Use Docker's native checkpoint API (like Cedana does)
+	return checkpointDockerNative(containerID, checkpointDir)
 }
 
 func checkpointProcess(pid int, checkpointDir string) error {

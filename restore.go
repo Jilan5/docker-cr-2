@@ -17,6 +17,12 @@ import (
 )
 
 func restoreContainer(containerID, checkpointDir string) error {
+	// First try Docker's native restore
+	if err := restoreDockerNative(containerID, checkpointDir); err == nil {
+		return nil
+	}
+
+	// Fall back to manual restore if native fails
 	metadataFile := filepath.Join(checkpointDir, "container.info")
 	metadataBytes, err := os.ReadFile(metadataFile)
 	if err != nil {
