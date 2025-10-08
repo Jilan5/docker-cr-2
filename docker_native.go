@@ -164,14 +164,22 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 
 	fmt.Printf("Restoring container %s from checkpoint %s...\n", containerID, checkpointID)
 
-	// Stop container if running
-	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil && info.State.Running {
-		fmt.Println("Stopping running container...")
-		timeout := 10
-		stopOpts := container.StopOptions{
-			Timeout: &timeout,
+	// Stop and remove container if it exists
+	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil {
+		if info.State.Running {
+			fmt.Println("Stopping running container...")
+			timeout := 10
+			stopOpts := container.StopOptions{
+				Timeout: &timeout,
+			}
+			dockerClient.ContainerStop(ctx, containerID, stopOpts)
 		}
-		dockerClient.ContainerStop(ctx, containerID, stopOpts)
+
+		fmt.Println("Removing existing container...")
+		removeOpts := container.RemoveOptions{
+			Force: true,
+		}
+		dockerClient.ContainerRemove(ctx, containerID, removeOpts)
 	}
 
 	// Start container with checkpoint
