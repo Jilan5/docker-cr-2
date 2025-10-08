@@ -4,9 +4,11 @@ set -e
 
 echo "=== Docker CRIU Checkpoint/Restore Test ==="
 
-# Clean up any existing test containers
+# Clean up any existing test containers and checkpoints
 echo "Cleaning up any existing test containers..."
 docker rm -f test-criu 2>/dev/null || true
+echo "Cleaning up any existing checkpoint directories..."
+sudo rm -rf /tmp/test-checkpoint 2>/dev/null || true
 
 # Start a simple test container
 echo "Starting test container..."

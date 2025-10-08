@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -41,12 +42,18 @@ func checkpointDockerNative(containerID, checkpointDir string) error {
 	}
 
 	// Use Docker's checkpoint API (this is what Cedana does)
-	// Handle container IDs of different lengths safely
+	// Handle container IDs of different lengths safely and make unique
 	shortID := containerID
 	if len(containerID) > 12 {
 		shortID = containerID[:12]
 	}
-	checkpointID := fmt.Sprintf("checkpoint-%s", shortID)
+
+	// Create unique checkpoint ID with timestamp
+	timestamp := time.Now().Unix()
+	checkpointID := fmt.Sprintf("checkpoint-%s-%d", shortID, timestamp)
+
+	// Cleanup any existing checkpoints for this container first
+	cleanupExistingCheckpoints(dockerClient, ctx, containerID)
 
 	opts := types.CheckpointCreateOptions{
 		CheckpointID:  checkpointID,
@@ -209,4 +216,20 @@ func listDockerCheckpoints(containerID string) error {
 	}
 
 	return nil
+}
+
+// cleanupExistingCheckpoints removes existing checkpoints for a container
+func cleanupExistingCheckpoints(dockerClient *client.Client, ctx context.Context, containerID string) {
+	checkpoints, err := dockerClient.CheckpointList(ctx, containerID, types.CheckpointListOptions{})
+	if err != nil {
+		// If we can't list checkpoints, just continue
+		return
+	}
+
+	for _, checkpoint := range checkpoints {
+		fmt.Printf("Removing existing checkpoint: %s\n", checkpoint.Name)
+		dockerClient.CheckpointDelete(ctx, containerID, types.CheckpointDeleteOptions{
+			CheckpointID: checkpoint.Name,
+		})
+	}
 }
