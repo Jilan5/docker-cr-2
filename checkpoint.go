@@ -13,46 +13,8 @@ import (
 )
 
 func checkpointContainer(containerID, checkpointDir string) error {
-	ctx := context.Background()
-
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return fmt.Errorf("failed to create Docker client: %w", err)
-	}
-	defer dockerClient.Close()
-
-	containerInfo, err := dockerClient.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect container %s: %w", containerID, err)
-	}
-
-	if !containerInfo.State.Running {
-		return fmt.Errorf("container %s is not running", containerID)
-	}
-
-	pid := containerInfo.State.Pid
-	if pid == 0 {
-		return fmt.Errorf("could not get PID for container %s", containerID)
-	}
-
-	fmt.Printf("Container PID: %d\n", pid)
-
-	if err := os.MkdirAll(checkpointDir, 0755); err != nil {
-		return fmt.Errorf("failed to create checkpoint directory: %w", err)
-	}
-
-	metadataFile := filepath.Join(checkpointDir, "container.info")
-	metadata := fmt.Sprintf("CONTAINER_ID=%s\nCONTAINER_NAME=%s\nIMAGE=%s\nPID=%d\n",
-		containerID,
-		containerInfo.Name,
-		containerInfo.Config.Image,
-		pid)
-
-	if err := os.WriteFile(metadataFile, []byte(metadata), 0644); err != nil {
-		return fmt.Errorf("failed to write metadata: %w", err)
-	}
-
-	return checkpointProcess(pid, checkpointDir)
+	// Use the Docker-specific checkpointing function
+	return checkpointDockerContainer(containerID, checkpointDir)
 }
 
 func checkpointProcess(pid int, checkpointDir string) error {
