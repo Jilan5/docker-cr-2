@@ -58,11 +58,11 @@ func checkpointContainer(containerID, checkpointDir string) error {
 func checkpointProcess(pid int, checkpointDir string) error {
 	criuClient := criu.MakeCriu()
 
-	version, err := criuClient.GetCriuVersion()
+	_, err := criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version (is CRIU installed?): %w", err)
 	}
-	fmt.Printf("CRIU version: %d.%d\n", version.Major, version.Minor)
+	fmt.Printf("CRIU version check passed\n")
 
 	if err := criuClient.Prepare(); err != nil {
 		return fmt.Errorf("failed to prepare CRIU: %w", err)
@@ -122,11 +122,11 @@ func checkpointSimpleProcess(pid int, checkpointDir string) error {
 
 	criuClient := criu.MakeCriu()
 
-	version, err := criuClient.GetCriuVersion()
+	_, err := criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
-	fmt.Printf("CRIU version: %d.%d\n", version.Major, version.Minor)
+	fmt.Printf("CRIU version check passed\n")
 
 	if err := criuClient.Prepare(); err != nil {
 		return fmt.Errorf("failed to prepare CRIU: %w", err)

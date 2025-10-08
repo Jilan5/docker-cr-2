@@ -39,7 +39,6 @@ func restoreContainer(containerID, checkpointDir string) error {
 	fmt.Printf("Original container image: %s\n", originalImage)
 	fmt.Printf("Original PID: %d\n", originalPID)
 
-	ctx := context.Background()
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err == nil {
 		defer dockerClient.Close()
@@ -75,11 +74,11 @@ func restoreContainer(containerID, checkpointDir string) error {
 func restoreProcess(checkpointDir string) error {
 	criuClient := criu.MakeCriu()
 
-	version, err := criuClient.GetCriuVersion()
+	_, err := criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
-	fmt.Printf("CRIU version: %d.%d\n", version.Major, version.Minor)
+	fmt.Printf("CRIU version check passed\n")
 
 	if err := criuClient.Prepare(); err != nil {
 		return fmt.Errorf("failed to prepare CRIU: %w", err)
@@ -141,11 +140,11 @@ func restoreSimpleProcess(checkpointDir string) error {
 
 	criuClient := criu.MakeCriu()
 
-	version, err := criuClient.GetCriuVersion()
+	_, err := criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
-	fmt.Printf("CRIU version: %d.%d\n", version.Major, version.Minor)
+	fmt.Printf("CRIU version check passed\n")
 
 	if err := criuClient.Prepare(); err != nil {
 		return fmt.Errorf("failed to prepare CRIU: %w", err)

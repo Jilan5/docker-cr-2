@@ -217,10 +217,35 @@ func prepareProcessForDump(pid int, opts *rpc.CriuOpts) error {
 }
 
 func isShellJob(pid int) bool {
-	pgid := syscall.Getpgid(pid)
-	sid, _ := syscall.Getsid(pid)
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		return false
+	}
 
-	return pgid == sid
+	// Get session ID using /proc filesystem since Getsid may not be available
+	statFile := fmt.Sprintf("/proc/%d/stat", pid)
+	data, err := os.ReadFile(statFile)
+	if err != nil {
+		return false
+	}
+
+	// Parse session ID from stat file (field 6)
+	statStr := string(data)
+	startParen := strings.Index(statStr, "(")
+	endParen := strings.LastIndex(statStr, ")")
+	if startParen != -1 && endParen != -1 && endParen > startParen {
+		afterParen := statStr[endParen+2:]
+		fields := strings.Fields(afterParen)
+		if len(fields) > 3 {
+			sidStr := fields[3]
+			sid, err := strconv.Atoi(sidStr)
+			if err == nil {
+				return pgid == sid
+			}
+		}
+	}
+
+	return false
 }
 
 func prepareProcessForRestore(checkpointDir string, opts *rpc.CriuOpts) error {
