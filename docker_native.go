@@ -41,7 +41,12 @@ func checkpointDockerNative(containerID, checkpointDir string) error {
 	}
 
 	// Use Docker's checkpoint API (this is what Cedana does)
-	checkpointID := fmt.Sprintf("checkpoint-%s", containerID[:12])
+	// Handle container IDs of different lengths safely
+	shortID := containerID
+	if len(containerID) > 12 {
+		shortID = containerID[:12]
+	}
+	checkpointID := fmt.Sprintf("checkpoint-%s", shortID)
 
 	opts := types.CheckpointCreateOptions{
 		CheckpointID:  checkpointID,
