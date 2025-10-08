@@ -33,7 +33,7 @@ echo "Checkpoint file count: $(ls /tmp/test-checkpoint/ | wc -l)"
 echo "Restoring container..."
 echo "Restore start time: $(date)"
 start_restore=$(date +%s.%N)
-sudo ./docker-cr restore test-criu /tmp/test-checkpoint
+sudo ./docker-cr restore /tmp/test-checkpoint test-criu
 end_restore=$(date +%s.%N)
 restore_time=$(echo "$end_restore - $start_restore" | bc -l)
 echo "Restore completed in: ${restore_time} seconds"
