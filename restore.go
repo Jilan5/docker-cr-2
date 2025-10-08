@@ -20,6 +20,9 @@ func restoreContainer(containerID, checkpointDir string) error {
 	// First try Docker's native restore
 	if err := restoreDockerNative(containerID, checkpointDir); err == nil {
 		return nil
+	} else {
+		fmt.Printf("Docker native restore failed: %v\n", err)
+		fmt.Println("Falling back to manual restore...")
 	}
 
 	// Fall back to manual restore if native fails
