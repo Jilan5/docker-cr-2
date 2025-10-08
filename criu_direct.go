@@ -95,6 +95,8 @@ func checkpointProcessDirect(pid int, checkpointDir string) error {
 		External: []string{
 			"mnt[]",     // Handle all mounts as external
 		},
+		// Auto-detect and handle external mounts
+		AutoExtMnt:   proto.Bool(true),
 	}
 
 	// Create notification handler
@@ -282,8 +284,10 @@ func restoreProcessDirect(checkpointDir string) error {
 			"mnt[]",     // Handle all mounts as external
 			"net[]",     // Handle network namespace as external
 		},
+		// Auto-detect and handle external mounts
+		AutoExtMnt:     proto.Bool(true),
 		// Sibling restore mode
-		RstSibling:      proto.Bool(false),
+		RstSibling:     proto.Bool(false),
 	}
 
 	// Create notification handler
