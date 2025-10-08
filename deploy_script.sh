@@ -20,7 +20,28 @@ verify_prerequisites() {
     # Check Docker
     if command_exists docker; then
         echo "✓ Docker is installed"
-        docker --version
+
+        # Check Docker permissions and add user to docker group if needed
+        if ! docker ps >/dev/null 2>&1; then
+            echo "⚠ Docker permission issue detected. Adding user to docker group..."
+            sudo usermod -aG docker $USER
+            echo "✓ User added to docker group. You may need to log out and log back in."
+            echo "  For immediate effect, run: newgrp docker"
+
+            # Try with sudo for now
+            echo "Using sudo for Docker commands in this script..."
+            if sudo docker --version >/dev/null 2>&1; then
+                echo "✓ Docker accessible with sudo"
+                USE_SUDO_DOCKER=true
+            else
+                echo "✗ Docker not accessible even with sudo"
+                exit 1
+            fi
+        else
+            echo "✓ Docker permissions OK"
+            docker --version
+            USE_SUDO_DOCKER=false
+        fi
     else
         echo "✗ Docker is not installed. Please check Pulumi userdata script."
         exit 1
@@ -35,11 +56,18 @@ verify_prerequisites() {
         exit 1
     fi
 
-    # Check experimental features
-    if docker version -f '{{.Server.Experimental}}' | grep -q true; then
+    # Check experimental features (use sudo if needed)
+    DOCKER_CMD="docker"
+    if [ "$USE_SUDO_DOCKER" = true ]; then
+        DOCKER_CMD="sudo docker"
+    fi
+
+    if $DOCKER_CMD version -f '{{.Server.Experimental}}' 2>/dev/null | grep -q true; then
         echo "✓ Docker experimental features are enabled"
     else
         echo "✗ Docker experimental features not enabled. Please check /etc/docker/daemon.json"
+        echo "  To enable: echo '{\"experimental\": true}' | sudo tee /etc/docker/daemon.json"
+        echo "  Then: sudo systemctl restart docker"
     fi
 
     echo "All prerequisites verified!"
@@ -235,7 +263,11 @@ run_initial_tests() {
 
     # Test 3: Docker version
     echo "Checking Docker version..."
-    docker --version
+    if [ "$USE_SUDO_DOCKER" = true ]; then
+        sudo docker --version
+    else
+        docker --version
+    fi
 
     echo "Initial tests completed!"
 }
