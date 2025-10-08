@@ -57,7 +57,7 @@ func checkpointDockerNative(containerID, checkpointDir string) error {
 
 	opts := types.CheckpointCreateOptions{
 		CheckpointID:  checkpointID,
-		CheckpointDir: checkpointDir,
+		// Don't specify CheckpointDir - let Docker use its default location
 		Exit:          false, // Keep container running (like LeaveRunning in CRIU)
 	}
 
@@ -85,13 +85,22 @@ func checkpointDockerNative(containerID, checkpointDir string) error {
 
 	fmt.Println("Docker checkpoint created successfully!")
 
-	// List checkpoint files
-	checkpointPath := filepath.Join(checkpointDir, checkpointID)
-	if entries, err := os.ReadDir(checkpointPath); err == nil {
-		fmt.Printf("Checkpoint files in %s:\n", checkpointPath)
-		for _, entry := range entries {
-			info, _ := entry.Info()
-			fmt.Printf("  - %s (%d bytes)\n", entry.Name(), info.Size())
+	// Copy checkpoint files from Docker's default location to our custom directory
+	dockerCheckpointDir := fmt.Sprintf("/var/lib/docker/containers/%s/checkpoints/%s", containerInfo.ID, checkpointID)
+	userCheckpointPath := filepath.Join(checkpointDir, checkpointID)
+
+	fmt.Printf("Copying checkpoint files from Docker storage to %s...\n", userCheckpointPath)
+	if err := copyCheckpointFiles(dockerCheckpointDir, userCheckpointPath); err != nil {
+		fmt.Printf("Warning: Could not copy checkpoint files: %v\n", err)
+		fmt.Printf("Checkpoint created but files remain in Docker's internal storage\n")
+	} else {
+		// List checkpoint files
+		if entries, err := os.ReadDir(userCheckpointPath); err == nil {
+			fmt.Printf("Checkpoint files in %s:\n", userCheckpointPath)
+			for _, entry := range entries {
+				info, _ := entry.Info()
+				fmt.Printf("  - %s (%d bytes)\n", entry.Name(), info.Size())
+			}
 		}
 	}
 
@@ -168,7 +177,7 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 	// Start container with checkpoint
 	startOpts := types.ContainerStartOptions{
 		CheckpointID:  checkpointID,
-		CheckpointDir: checkpointDir,
+		// Don't specify CheckpointDir - let Docker use its default location
 	}
 
 	err := dockerClient.ContainerStart(ctx, containerID, startOpts)
@@ -232,4 +241,16 @@ func cleanupExistingCheckpoints(dockerClient *client.Client, ctx context.Context
 			CheckpointID: checkpoint.Name,
 		})
 	}
+}
+
+// copyCheckpointFiles copies checkpoint files from Docker's internal storage to user directory
+func copyCheckpointFiles(srcDir, dstDir string) error {
+	// Create destination directory
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+
+	// Use cp command to copy files (handles permissions properly)
+	cmd := exec.Command("cp", "-r", srcDir+"/.", dstDir)
+	return cmd.Run()
 }
