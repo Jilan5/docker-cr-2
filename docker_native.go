@@ -176,7 +176,7 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 		}
 
 		fmt.Println("Removing existing container...")
-		removeOpts := container.RemoveOptions{
+		removeOpts := types.ContainerRemoveOptions{
 			Force: true,
 		}
 		dockerClient.ContainerRemove(ctx, containerID, removeOpts)
