@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
 
@@ -148,7 +149,7 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil && info.State.Running {
 		fmt.Println("Stopping running container...")
 		timeout := 10
-		stopOpts := types.ContainerStopOptions{
+		stopOpts := container.StopOptions{
 			Timeout: &timeout,
 		}
 		dockerClient.ContainerStop(ctx, containerID, stopOpts)
@@ -182,14 +183,13 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 
 // listDockerCheckpoints lists all checkpoints for a container
 func listDockerCheckpoints(containerID string) error {
-	ctx := context.Background()
-
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
 	}
 	defer dockerClient.Close()
 
+	ctx := context.Background()
 	checkpoints, err := dockerClient.CheckpointList(ctx, containerID, types.CheckpointListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list checkpoints: %w", err)
