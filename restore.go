@@ -74,7 +74,7 @@ func restoreContainer(containerID, checkpointDir string) error {
 func restoreProcess(checkpointDir string) error {
 	criuClient := criu.MakeCriu()
 
-	_, err := criuClient.GetCriuVersion()
+	_, err = criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
@@ -140,7 +140,7 @@ func restoreSimpleProcess(checkpointDir string) error {
 
 	criuClient := criu.MakeCriu()
 
-	_, err := criuClient.GetCriuVersion()
+	_, err = criuClient.GetCriuVersion()
 	if err != nil {
 		return fmt.Errorf("failed to get CRIU version: %w", err)
 	}
