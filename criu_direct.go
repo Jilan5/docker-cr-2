@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/checkpoint-restore/go-criu/v7"
 	"github.com/checkpoint-restore/go-criu/v7/rpc"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"google.golang.org/protobuf/proto"
@@ -123,6 +125,45 @@ func checkpointProcessDirect(pid int, checkpointDir string) error {
 
 // restoreContainerDirect restores using CRIU directly
 func restoreContainerDirect(containerID, checkpointDir string) error {
+	// Verify checkpoint files exist
+	if _, err := os.Stat(filepath.Join(checkpointDir, "pstree.img")); os.IsNotExist(err) {
+		return fmt.Errorf("checkpoint files not found in %s", checkpointDir)
+	}
+
+	// Read metadata
+	metadataFile := filepath.Join(checkpointDir, "container.meta")
+	metadataBytes, err := os.ReadFile(metadataFile)
+	if err != nil {
+		return fmt.Errorf("failed to read metadata: %w", err)
+	}
+
+	fmt.Printf("Checkpoint metadata:\n%s\n", string(metadataBytes))
+
+	// Parse metadata
+	metadata := make(map[string]string)
+	lines := strings.Split(string(metadataBytes), "\n")
+	for _, line := range lines {
+		if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+			metadata[parts[0]] = parts[1]
+		}
+	}
+
+	// Count checkpoint files
+	entries, err := os.ReadDir(checkpointDir)
+	if err != nil {
+		return fmt.Errorf("failed to read checkpoint directory: %w", err)
+	}
+
+	imgCount := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".img") {
+			imgCount++
+		}
+	}
+
+	fmt.Printf("Found %d checkpoint image files\n", imgCount)
+
+	// For container restore, we need to create a new container with proper namespace setup
 	ctx := context.Background()
 
 	// Get Docker client
@@ -132,20 +173,78 @@ func restoreContainerDirect(containerID, checkpointDir string) error {
 	}
 	defer dockerClient.Close()
 
-	// Stop container if running
+	// Remove existing container if it exists
 	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil {
-		if info.State.Running {
-			fmt.Println("Stopping container...")
-			timeout := 10
-			stopOpts := container.StopOptions{
-				Timeout: &timeout,
-			}
-			dockerClient.ContainerStop(ctx, containerID, stopOpts)
-			time.Sleep(2 * time.Second)
-		}
+		fmt.Println("Stopping and removing existing container...")
+		timeout := 10
+		stopOpts := container.StopOptions{Timeout: &timeout}
+		dockerClient.ContainerStop(ctx, containerID, stopOpts)
+
+		removeOpts := types.ContainerRemoveOptions{Force: true}
+		dockerClient.ContainerRemove(ctx, containerID, removeOpts)
+		time.Sleep(1 * time.Second)
 	}
 
-	// Use CRIU to restore
+	// Create new container in stopped state for namespace setup
+	image := metadata["IMAGE"]
+	if image == "" {
+		image = "alpine:latest"
+	}
+
+	fmt.Printf("Creating new container from image %s...\n", image)
+	containerConfig := &container.Config{
+		Image: image,
+		Cmd:   []string{"sleep", "3600"}, // Will be replaced by restore
+		Tty:   true,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	hostConfig := &container.HostConfig{
+		// Use default namespaces - CRIU will handle the restoration
+		IpcMode:     container.IpcMode(""),
+		PidMode:     container.PidMode(""),
+		NetworkMode: container.NetworkMode("default"),
+	}
+
+	resp, err := dockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to create container: %w", err)
+	}
+
+	fmt.Printf("Created container: %s\n", resp.ID)
+
+	// Start container briefly to set up namespaces, then stop it
+	if err := dockerClient.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("failed to start container: %w", err)
+	}
+
+	// Wait a moment for container to fully start
+	time.Sleep(2 * time.Second)
+
+	// Get container PID for namespace information
+	newInfo, err := dockerClient.ContainerInspect(ctx, resp.ID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect new container: %w", err)
+	}
+
+	newPID := newInfo.State.Pid
+	fmt.Printf("New container PID: %d\n", newPID)
+
+	// Stop the container but keep it created (don't remove)
+	fmt.Println("Stopping container for restore...")
+	timeout := 5
+	stopOpts := container.StopOptions{Timeout: &timeout}
+	if err := dockerClient.ContainerStop(ctx, resp.ID, stopOpts); err != nil {
+		return fmt.Errorf("failed to stop container: %w", err)
+	}
+
+	// Wait for container to fully stop
+	time.Sleep(2 * time.Second)
+
+	// Now attempt direct CRIU restore
+	fmt.Println("Attempting direct CRIU restore into container namespaces...")
 	return restoreProcessDirect(checkpointDir)
 }
 
@@ -170,7 +269,7 @@ func restoreProcessDirect(checkpointDir string) error {
 	}
 	defer imageDir.Close()
 
-	// CRIU restore options
+	// CRIU restore options for container restore
 	opts := &rpc.CriuOpts{
 		ImagesDirFd:    proto.Int32(int32(imageDir.Fd())),
 		LogLevel:       proto.Int32(4),
@@ -178,10 +277,16 @@ func restoreProcessDirect(checkpointDir string) error {
 		TcpEstablished: proto.Bool(true),
 		ExtUnixSk:      proto.Bool(true),
 		ShellJob:       proto.Bool(false),
-		// Container-specific options
+		// Container-specific options for namespace handling
 		External: []string{
 			"mnt[]",     // Handle all mounts as external
+			"net[]",     // Handle network namespace as external
 		},
+		// Allow namespace restoration
+		RestoreDetached: proto.Bool(true),
+		RstSibling:      proto.Bool(false),
+		// Enable orphan process handling
+		Orphan:          proto.Bool(false),
 	}
 
 	// Create notification handler
@@ -195,7 +300,7 @@ func restoreProcessDirect(checkpointDir string) error {
 		// Read and display log
 		logPath := filepath.Join(checkpointDir, "restore.log")
 		if logData, readErr := os.ReadFile(logPath); readErr == nil {
-			fmt.Printf("CRIU log:\n%s\n", string(logData))
+			fmt.Printf("CRIU restore log:\n%s\n", string(logData))
 		}
 		return fmt.Errorf("restore failed: %w", err)
 	}

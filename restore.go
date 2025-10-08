@@ -17,7 +17,16 @@ import (
 )
 
 func restoreContainer(containerID, checkpointDir string) error {
-	// First try Docker's native restore
+	// First try direct CRIU restore (our improved approach)
+	fmt.Println("Attempting direct CRIU restore...")
+	if err := restoreContainerDirect(containerID, checkpointDir); err == nil {
+		return nil
+	} else {
+		fmt.Printf("Direct CRIU restore failed: %v\n", err)
+		fmt.Println("Trying Docker native restore...")
+	}
+
+	// Try Docker's native restore
 	if err := restoreDockerNative(containerID, checkpointDir); err == nil {
 		return nil
 	} else {
@@ -25,8 +34,8 @@ func restoreContainer(containerID, checkpointDir string) error {
 		fmt.Println("Falling back to manual restore...")
 	}
 
-	// Fall back to manual restore if native fails
-	metadataFile := filepath.Join(checkpointDir, "container.info")
+	// Fall back to manual restore if all methods fail
+	metadataFile := filepath.Join(checkpointDir, "container.meta")
 	metadataBytes, err := os.ReadFile(metadataFile)
 	if err != nil {
 		return fmt.Errorf("failed to read metadata file: %w", err)
