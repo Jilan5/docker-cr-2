@@ -164,33 +164,35 @@ func restoreWithCheckpoint(dockerClient *client.Client, containerID, checkpointI
 
 	fmt.Printf("Restoring container %s from checkpoint %s...\n", containerID, checkpointID)
 
-	// Stop and remove container if it exists
+	// Stop container if it exists and is running, but don't remove it
+	containerExists := false
 	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil {
+		containerExists = true
 		if info.State.Running {
 			fmt.Println("Stopping running container...")
 			timeout := 10
 			stopOpts := container.StopOptions{
 				Timeout: &timeout,
 			}
-			dockerClient.ContainerStop(ctx, containerID, stopOpts)
+			if err := dockerClient.ContainerStop(ctx, containerID, stopOpts); err != nil {
+				return fmt.Errorf("failed to stop container: %w", err)
+			}
 		}
-
-		fmt.Println("Removing existing container...")
-		removeOpts := types.ContainerRemoveOptions{
-			Force: true,
-		}
-		dockerClient.ContainerRemove(ctx, containerID, removeOpts)
 	}
 
-	// Start container with checkpoint
-	startOpts := types.ContainerStartOptions{
-		CheckpointID:  checkpointID,
-		// Don't specify CheckpointDir - let Docker use its default location
-	}
+	if containerExists {
+		// Container exists but is stopped - start with checkpoint
+		fmt.Printf("Starting existing container from checkpoint...\n")
+		startOpts := types.ContainerStartOptions{
+			CheckpointID: checkpointID,
+		}
 
-	err := dockerClient.ContainerStart(ctx, containerID, startOpts)
-	if err != nil {
-		return fmt.Errorf("failed to restore container from checkpoint: %w", err)
+		err := dockerClient.ContainerStart(ctx, containerID, startOpts)
+		if err != nil {
+			return fmt.Errorf("failed to restore container from checkpoint: %w", err)
+		}
+	} else {
+		return fmt.Errorf("container %s does not exist - cannot restore from checkpoint", containerID)
 	}
 
 	// Verify container is running
