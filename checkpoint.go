@@ -11,7 +11,16 @@ import (
 )
 
 func checkpointContainer(containerID, checkpointDir string) error {
-	// Use Docker's native checkpoint API (like Cedana does)
+	// First try direct CRIU approach
+	fmt.Println("Attempting direct CRIU checkpoint...")
+	if err := checkpointContainerDirect(containerID, checkpointDir); err == nil {
+		return nil
+	} else {
+		fmt.Printf("Direct CRIU failed: %v\n", err)
+		fmt.Println("Falling back to Docker native checkpoint...")
+	}
+
+	// Fall back to Docker's native checkpoint API
 	return checkpointDockerNative(containerID, checkpointDir)
 }
 
