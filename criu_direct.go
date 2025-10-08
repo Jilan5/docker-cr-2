@@ -174,7 +174,7 @@ func restoreContainerDirect(containerID, checkpointDir string) error {
 	defer dockerClient.Close()
 
 	// Remove existing container if it exists
-	if info, err := dockerClient.ContainerInspect(ctx, containerID); err == nil {
+	if _, err := dockerClient.ContainerInspect(ctx, containerID); err == nil {
 		fmt.Println("Stopping and removing existing container...")
 		timeout := 10
 		stopOpts := container.StopOptions{Timeout: &timeout}
@@ -282,11 +282,8 @@ func restoreProcessDirect(checkpointDir string) error {
 			"mnt[]",     // Handle all mounts as external
 			"net[]",     // Handle network namespace as external
 		},
-		// Allow namespace restoration
-		RestoreDetached: proto.Bool(true),
+		// Sibling restore mode
 		RstSibling:      proto.Bool(false),
-		// Enable orphan process handling
-		Orphan:          proto.Bool(false),
 	}
 
 	// Create notification handler
